@@ -1,0 +1,492 @@
+---
+title: 'Final Project: Preliminary Analysis on FIFA19 Dataset'
+CourseCode: ALY 6015
+CourseName: Intermediate Analytics
+output: pdf_document
+Output: html_document
+TeamName: BrownHuskies
+Instructor: Vladimir Shapiro
+Author: Md Tajrianul Islam & Rohith Mallula
+--- 
+## Introduction
+
+FIFA 19 (from the FIFA saga) is a soccer simulation video game developed by EA Vancouver as part of the Electronic Arts FIFA series. The FIFA franchise by EA Sports is the most anticipated football game every year for any football fan. Looking into the database of FIFA19 we are are happy to have such widespread dataset for our final project of the course. We have details for 18,207 different players across 651 different clubs and with 164 different nationalities. For each player we have details of over 80 different attributes including their age, club, nationality, value, wage, playing position and ratings from 1 to 100 for their overall ability as well as their ability in various skills such as crossing, finishing, agility and strength.
+
+## Mission Statement
+
+We are looking into the FIFA19 dataset in order to answer some very specific business questions. During every transfer seasons the most important factor for teams is to include the players with top skills while ensuring they meet their financial targets. So the most important task for any manager is to ensure they buy the right player with the right price. Our analysis of the dataset will focused on the following tasks:
+1) Predicting overall of a player
+
+## Methodologies
+
+Like every analysis tasks we will start with review, cleaning and transformation of variables. Then will be making use of exploratory analyisis mainly on the different player attribute columns to search for exisitng patterns in the data. We might have to seperate the GK position with other outfield positions as in the dataset there is no skill information of the goalkeepers in other positions. The Special variable, according to the previous point, is greatly affected, showing a clear difference between these two groups.In many of the offensive skills, technique, movement, power, mentality, defense and jumper the distribution is affected depending on which group is analyzed. Then we will apply random forest based on the most correlated variables to predict the vaule and potential of the players.  
+
+
+## Analysis
+
+We will start with adding the required libraries. 
+
+```{r}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, dplyr, cowplot,ggplot2,maps,highcharter,gridExtra,ggrepel)
+mySleep <- function(){Sys.sleep(20)}
+```
+
+
+Then we will load our dataset and we will use the summary() function for the initial impression of the dataset     
+```{r}
+df = read.csv(file.choose())
+summary(df)
+
+```
+
+
+The first thing to do after reading the dataset is to check if attribute values needs to be a bit manipulated. We use the grepl() fuction that returns TRUE if a string contains the pattern to pick Ms and Ks and multiply it with appropriate number to convert it into thousand(K) and million(M).
+
+```{r}
+Original_df <- df
+
+Fixed_df <- Original_df %>% 
+  mutate(
+    Value = case_when(
+      grepl("M", df$Value) ~ as.numeric(substring(df$Value, 2, nchar(as.character(df$Value))-1)) * 1000000,
+      grepl("K", df$Value) ~ as.numeric(substring(df$Value, 2, nchar(as.character(df$Value))-1)) * 1000,
+      TRUE ~ as.numeric(df$Value)
+    ),
+    Wage = case_when(
+      grepl("M", df$Wage) ~ as.numeric(substring(df$Wage, 2, nchar(as.character(df$Wage))-1)) * 1000000,
+      grepl("K", df$Wage) ~ as.numeric(substring(df$Wage, 2, nchar(as.character(df$Wage))-1)) * 1000,
+      TRUE ~ as.numeric(df$Wage)
+    ),
+    Release.Clause = case_when(
+      grepl("M", df$Release.Clause) ~ as.numeric(substring(df$Release.Clause, 2, nchar(as.character(df$Wage))-1)) * 1000000,
+      grepl("K", df$Release.Clause) ~ as.numeric(substring(df$Release.Clause, 2, nchar(as.character(df$Wage))-1)) * 1000,
+      TRUE ~ as.numeric(df$Release.Clause)
+    ))
+    
+df$Value=Fixed_df$Value
+df$Wage=Fixed_df$Wage
+df$Release.Clause=Fixed_df$Release.Clause
+
+cat('Converted into integer ')
+
+head(df$Value)
+head(df$Wage)
+
+```
+
+Our goal for the project is to predict a player overall, so the first thing we would like to look into how the overall is distributed around the data. 
+```{r}
+summary(df$Overall)
+hchart(df$Overall, name = 'Overall Rate')
+```
+So what we can see is most of the players' overall is around 60-70, with a mean of 66.24 and a median of 66.00. Also looking into the shape of the distribution we can easily say that it is normally distributed. 
+
+We think a players' value should be highly correlated with their overall. So we created boxplots to see how they are related and for that we used hcboxplot() function as it shows us, on mouse-over, the summary data used in the boxplot.  
+```{r}
+
+summary(df$Value)
+
+hcboxplot(x = df$Overall, var = df$Value) %>%
+  hc_chart(type = "column") %>%
+  hc_yAxis(title = list(text = "Overall Rate"),
+       labels = list(format = "{value}")) %>%
+  hc_xAxis(title = list(text = "Value"),
+       labels = list(format = "{value}"), max = 100)  
+
+```
+So we can see that as players value gets bigger range of overalls keeps getting smaller. It's obvious because because only the top overall players will have the most values. Where as for a median value a player overall may vary because other attributes might effect like age which effects their potential overall in the future. 
+
+Then we wanted to find out what is average overall of players' of individual countries. As our built and structure varies around the world, it can possibly effect a nations natural capabilities of producing better players. 
+
+```{r}
+overall_data <- df %>% 
+  group_by(Nationality) %>% 
+  summarise(Count = n(), 
+            Avg_Overall = mean(Overall)) %>%
+  filter(Count > 50)
+
+overall_data %>%
+    select(Nationality, Avg_Overall)%>%                       
+    arrange(desc(Avg_Overall)) 
+worldmap = map_data("world")                           
+merged_data <- merge(x = worldmap, y = overall_data, by.x = "region", by.y = "Nationality", all.x = TRUE) %>% arrange(order)
+ggplot(data = merged_data, aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(
+fill = Avg_Overall)) +
+  labs(fill='Average Overall')
+```
+We also wanted to see how diversified is the nationality of the players with highest overall are.
+```{r}
+players__Top_Overall <- df %>%
+    select(Name, Nationality, Overall, Value, Wage)%>%
+    group_by(Overall)%>%
+    arrange(desc(Overall))%>%
+    head(30)
+data.frame(players__Top_Overall)   
+```
+From the above two observation we can cnfidently see some relation between a players' nationality and their liklihood of having a higher overall. We also created a plot to visualize it 
+
+```{r}
+require(scales)
+players_plot <- df %>%
+    group_by(Overall)%>%
+    arrange(desc(Overall))%>%
+    head(20)%>%
+    ggplot(mapping = aes(x = Name, y = Value, color = Nationality, fill = Nationality, alpha = Value, size=Value))+
+    geom_bar(stat='identity')+
+    coord_polar()+
+    theme_minimal()+
+    labs(x = 'Name', y ='Overall', title ='Highest Overall Players')+
+    theme(plot.title = element_text(hjust=0.5),legend.position ='bottom')+
+    scale_y_continuous(labels = comma)
+    
+players_plot
+
+```
+
+Then we created some value brackets for the ease of creating some specific plots. We use the mutate() function to create a new variable from the data set.
+
+```{r}
+value_breaks <- c(0, 10000000, 20000000, 30000000, 40000000, 50000000, 60000000, 70000000, 80000000, 90000000, 100000000, Inf)
+value_labels <- c("0-10M", "10-20M", "20-30M", "30-40M", "40-50M","50-60M", "60-70M", "70-80M", "80-90M","90-100M","100M+")
+value_brackets <- cut(x=df$Value, breaks=value_breaks, 
+labels=value_labels, include.lowest = TRUE)
+df <-mutate(df, value_brackets)
+head(df)
+```
+
+As we have talked previously, players' age can not only effect their value but also their overall. Usually every player have their peak age as well as there are age ranges when most players hit their peaks. To understand it bettwe we looked in to the distribution between age and overall of players based on value brackets.
+```{r}
+g_age_overall <- ggplot(df, aes(Age, Overall))
+g_age_overall + geom_point(aes(color=value_brackets)) + geom_smooth(color="darkblue") + 
+ggtitle("Distribution between Age and Overall of players based on Value bracket")
+```
+From the above we can we see highly valued players are between the age of 22 to 32, because they either they already have good overall at a young age so they are expected to have a bright future ot they have already achieved the peak of their overall to deserve high value. So age is definitely correlated with players' overall.  
+
+Then we have also seen clubs' most popular or dependent players carrying specific jersey numbers. So we wanted to check our assumption grouped my data by their jersey numbers and plotted then against the average overall using ggplot() function
+
+```{r echo=FALSE, warning=FALSE}
+df %>%
+  group_by(Jersey.Number) %>%
+  summarise(Avg.Overall = sum(Overall)/length(Jersey.Number),
+            Player.Count = sum(Jersey.Number))%>%
+  arrange(-Avg.Overall)%>%
+  ggplot(aes(x = Jersey.Number, y = Avg.Overall,col = ifelse(Avg.Overall < 70,"darkgrey", "Red")))+
+  geom_point(position = "jitter")+
+  theme(legend.position = "none")+
+  geom_text_repel(aes(label = ifelse(Avg.Overall > 70, Jersey.Number, "")))
+
+```
+We can see jersey No 79 is an outlier with only two players making up the overall average. Number 10 remains the most sought after jersey in footballing teams and is mostly awarded to the best player in the teams.
+
+
+
+Player value prediction                   
+
+```
+
+## Predicting Overall Rating
+
+### Multiple Linear Regression (MLR)
+```
+```{r}
+fifa<- read.csv("C:/Users/itzro/Downloads/Fifa19-master/data.csv", na.strings = c("", "NA"))
+fifa <- fifa[, c(2:4,6,8:10,12:19,22,28,55:89)]
+
+```
+
+
+## Data Preprocessing(Cleaning and Converting) 
+Not much needs doing here other than some cosmetic revisions and data type conversion from factor to numeric (or vice-versa).
+```{r include=FALSE}
+# removing / from Work.Rate column
+library(stringr)
+fifa$Work.Rate <- str_remove(fifa$Work.Rate, "/ ")
+```
+```{r include=FALSE}
+# collapse LowLow work rate to LowMedium to prevent aliasing in the regression model
+fifawr <- gsub("LowLow","LowMedium",fifa$Work.Rate)
+fifa <- fifa[,-15]
+fifa$Work.Rate <- fifawr
+fifa$Work.Rate %<>% factor(.)
+
+fifa$International.Reputation <- as.factor(fifa$International.Reputation)
+fifa$Weak.Foot <- as.factor(fifa$Weak.Foot)
+fifa$Work.Rate <- as.factor(fifa$Work.Rate)
+fifa$Skill.Moves <- as.factor(fifa$Skill.Moves)
+
+# remove "lbs" from Weight column
+fifa$Weight %<>% 
+  as.character(.) %>%
+  gsub("lbs","", .) %>%
+  as.numeric(.)
+
+```
+
+
+
+First, we'll recategorize the 27 total player positions to just 6:
+
+* Defenders (DF)
+* Defensive Midfielders (DM)
+* Midfielders (MF)
+* Attacking Midfielders (AM)
+* Strikers (ST)
+* Goalkeepers (GK)
+
+```{r echo=FALSE}
+fifa$Position %<>%
+  gsub("RB|LB|CB|LCB|RCB|RWB|LWB", "DF", .) %>% # Defenders
+  gsub("LDM|CDM|RDM", "DM", .) %>% # Defensive Midfielders
+  gsub("LM|LCM|CM|RCM|RM", "MF", .) %>% # Midfielders
+  gsub("LAM|CAM|RAM|LW|RW", "AM", .) %>% # Attacking Midfielders
+  gsub("RS|ST|LS|CF|LF|RF", "ST",. ) %>% # Strikers
+  factor(.)
+```
+ It's a useful but imperfect categorization that simplifies analysis and process time.  It's best to exclude goalkeepers given its different distribution relative to other positions.
+
+
+
+```{r echo=FALSE}
+fifa <- fifa[, -c(1,2,4,6:10,51)]
+# there's at most 60 NAs - remove them.
+fifa_nongk <- fifa[complete.cases(fifa), ] %>% filter(Position != "GK")
+```
+
+To compare the relative importance of each variable, the predictors need to be standardized since unit of measures differ (e.g., ```Age``` and ```Weight```). For a continuous predictor (column) each observation $x_i$ is subtracted by the column mean $\overline{x}$, the difference then divided by the column's standard deviation $sd(x)$, as shown in the formula below.
+
+$$\frac{x_i - \overline{x}}{sd(x)}$$
+While it's standard to perform this calculation on both (continuous) predictors and the response variable, standardizing just the predictors keeps the response variable in its original units.  
+Refer The University of Notre Dame's [summary](https://www3.nd.edu/~rwilliam/stats1/x92b.pdf){target="_blank"} on standardizing variables and their interpretations.
+
+```{r echo=FALSE}
+library(purrr)
+# names of the continuous predictors to standardize
+col_names <- c("Age", "Weight","Dribbling","Interceptions","HeadingAccuracy","Reactions","Balance","Jumping","Stamina","Strength","Composure")
+# find the corresponding column numbers
+col_nums <- match(col_names, colnames(fifa))
+# apply standardization formula, then append the relevant categorical predictors to the dataframe
+fifa_standardized <- map_df(fifa_nongk[, col_nums], function(x) (x-mean(x))/sd(x)) %>% 
+  cbind(., fifa_nongk$Work.Rate, fifa_nongk$Position, fifa_nongk$Overall)
+# change the column names of the categorical predictors
+colnames(fifa_standardized)[12:14] <- c("Work.Rate", "Position", "Overall")
+```
+
+```{r echo=FALSE}
+set.seed(5638)
+# 80-20 data split.
+smp_size <- floor(0.8 * nrow(fifa_standardized)) 
+index<-sample(1:nrow(fifa_standardized),size = smp_size,replace=F) 
+fifa_train<-fifa_standardized[index,]
+rownames(fifa_train) <- NULL
+fifa_test<-fifa_standardized[-index,]
+```
+
+```{r echo=FALSE}
+fifa.model <- lm(Overall ~ ., data = fifa_train)
+```
+
+```{r echo=FALSE}
+car::Anova(fifa.model, type = "III")
+```
+
+All variables except ```Age``` and ```Jumping``` are highly significant. To assess this model's quality, we examine how well it aligns with linear regression assumptions.
+
+### Assumption Checking
+
+```{r echo=FALSE}
+par(mfrow = c(2,2))
+plot(fifa.model)
+```
+
+Residuals appear to be normally distributed with constant variance, demonstrated in the QQ plot and Residuals vs Fitted plots. There are no problematic leverage or influential points in the Residuals vs Leverage plot. With large datasets, it's not uncommon to see ~ 5% of data fall outside 3 standard deviations, so observations near $\pm$ 4 standard deviations in the Residuals vs Leverage plot are not necessarily problematic. Since this is cross-sectional data from a single season, we do not have to worry about serial correlation. Clustering could be an issue given that players on the same team can help or hurt each other’s statistics. Nevertheless, independence is assumed for this analysis.
+
+### Examining Potential Multicollinearity
+### Multicollinearity refers to a situation in which two or more explanatory variables in a multiple regression model are highly linearly related. We have perfect multicollinearity if, for example as in the equation above, the correlation between two independent variables is equal to 1 or −1.
+
+```{r echo=FALSE}
+library(car)
+car::vif(fifa.model)
+```
+
+GVIF is used instead of VIF when more than two levels exist for a (categorical) variable, or if a quadratic term exists. This is the case with the Fifa data --- for example ```Work.Rate``` has 8 levels (categories), or 7 degrees of freedom.  GVIF reduces to the VIF for continuous predictors.   Squaring the second column of this output corresponds to the normal VIF for continuous predictors.All GVIF values are moderately low, evidence that the MLR model doesn't suffer from multicollinearity.  
+
+### MLR Analysis
+
+Here's the coefficient summary for the MLR model.
+
+```{r echo=FALSE}
+summary(fifa.model)
+```
+
+An interesting result is that a player's ```Age``` isn't a significant predictor when all other model variables are accounted for, suggesting that skill takes precedence.  There's not enough evidence to suggest ```Jumping``` skills are beneficial either, which makes sense given that soccer is concerned more with kicking and running.  The most-likely exception to this is goalkeepers - who jump quite often - which were not included in the model.  
+
+The ```Work.Rate``` baseline category is ```HighHigh```.  Compared to it, the most effective ```Work.Rate```s appear to be high on attack and low on defense, and low on attack and high on defense, suggesting players are better off specializing in one area rather than both.
+
+The ```Position``` baseline category is ```PositionAM``` (equivalently, Attacking Midfielders).  Compared to them, only defenders (```PositionDF```) fare better.
+
+Overall, the most important quantitative variables affecting ```Overall``` score are ```Dribbling``` and ```Reactions```.  Dribbling is [defined](https://www.fifplay.com/encyclopedia/player-attribute-dribbling/){target="_blank"} as "a player's ability to carry the ball and past an opponent while being in control".  Reactions is [defined](https://www.fifplay.com/encyclopedia/player-attribute-reactions/){target="_blank"} as a player's speed in responding to events and situations around them.  These characteristics agree with our intuition on what makes a great soccer player.  One can even argue that, taken together, these two variables encompass the other skills-based variables. 
+
+### Parameter Interpretation
+
+One strength of linear regression models is their high interpretability, so this should be taken advantage of.  Here is a template for interpreting the variables from the MLR model.  The y-intercept has no logical meaning for this analysis (can someone be 0 yrs old and weigh 0kg ?).  
+
+**For the continuous variables ```Age``` through ```Composure``` the construct looks like this**:
+
+* An increase of one *standard deviation* in ```Weight``` is associated with a mean increase in ```Overall``` score of 0.22, holding all other variables constant.
+
+Another way to phrase this is:
+
+* A 14.81 kg increase in ```Weight``` is associated with a mean increase in ```Overall``` score of 0.22, holding all other variables constant.
+
+or 
+
+* A 1 kg increase in ```Weight``` is associated with a mean increase in ```Overall``` score of 0.0149, holding all other variables constant.
+
+The standard deviation of ```Weight``` in the dataset is 14.80742, or ~ 14.81.  In keeping with the usual interpretation in regression ("a one unit increase..."), we can divide 0.22 by 14.81.
+
+**For ```Work.Rate``` the construct looks like this**:
+
+* Relative to players with ```HighHigh``` profiles, players with ```HighLow``` profiles are expected to have a mean increase in ```Overall``` score of 1.09, holding all other variables constant.
+
+**For ```Position``` the construct looks like this**:
+
+* Relative to attacking midfielders (```AM```), defenders (```DM```) are expected to have a mean increase in ```Overall``` score of 0.32, holding all other variables constant.
+
+95% confidence intervals are easily obtained.
+
+```{r echo=FALSE}
+confint(fifa.model)
+```
+
+Taking ```Stamina``` as an example, the interpretation is: we're 95% confident that the true value of ```Stamina```'s coefficient, using standardized data, lies between 0.316 and 0.436.
+
+### Test set results
+
+The predicted values and actual values for the test set have approximately 91% correlation, which suggests a relatively good fit.
+
+```{r include=FALSE}
+# correlation of predicted and actual values
+overall_predict <- round(predict(fifa.model, fifa_test))
+actuals <- fifa_test$Overall
+cor(overall_predict,actuals)
+```
+
+```{r echo=FALSE}
+# combine predicted and actual values for test set
+test_results <- data.frame(Actual = fifa_test$Overall, 
+                           Predicted = overall_predict)
+# plot predicted vs actual
+ggplot(test_results, aes(Actual,Predicted)) + 
+  geom_jitter() + # geom_jitter removes some of the point overlaps
+  ggtitle("MLR Test Set Performance for Overall Player Rating") + 
+  theme(plot.title = element_text(hjust = .5)) + 
+  ylab("Predicted Rating")+
+  xlab("Actual Rating")
+```
+
+```{r include=FALSE}
+# test set R-squared value
+(cor(fifa_test$Overall,overall_predict))^2
+```
+
+```{r include=FALSE}
+# training set RMSE
+rtra<-sqrt(mean((round(fifa.model$fitted.values) - fifa_train$Overall)^2))
+rtra
+```
+
+```{r include=FALSE}
+# test set RMSE
+rtes<- sqrt(mean((overall_predict - fifa_test$Overall)^2))
+rtes
+```
+
+```{r include=FALSE}
+# training set mean absolute percent error (MAPE)
+
+# gather the actual and predicted training set values
+fifa_mlr_values <- data.frame(Actual = fifa_train$Overall,
+                              Preds = round(fifa.model$fitted.values))
+
+# calculate MAPE
+mean(abs(fifa_mlr_values$Actual - fifa_mlr_values$Preds) / abs(fifa_mlr_values$Actual))
+```
+
+```{r include=FALSE}
+# test set MAPE
+mean(abs(test_results$Actual - test_results$Predicted) / abs(test_results$Actual))
+```
+
+To summarize the results:
+
+* Adj $R^{2}$ (Training Set) = 84.2%
+* Adj $R^{2}$ (Test Set) = 83.7%
+* RMSE (Training Set) = 2.71
+* RMSE (Test Set) = 2.73
+* MAPE (Training Set) = 3.3%
+* MAPE (Test Set) = 3.3%
+
+For prediction, RMSE and MAPE are the more relevant metrics.  RMSE is used for providing prediction intervals that quantify the margin of error for a predicted value.  For large samples, a 95% prediction interval (PI) takes the form $\hat y \pm 2*RMSE$, where $\hat y$ is predicted value from the regression model.  For the MLR model, the margin of error for a 95% PI is $2*2.73 = 5.46$.
+If for example we predict a player's ```Overall``` to be 75, the lower bound is 75-5.46=70 and the upper bound is 75+5.46=80 --- rounding to the nearest whole number since *FIFA* scores are integer values.
+
+The MAPE quantifies how off the predictions were from the actual values.  The MLR model implies an accuracy of ~ 97%. So while point predictions are accurate, the margin or error might be a bit wide.
+
+## Improving Prediction with a random forest
+
+Earlier it was mentioned goalkeepers were excluded from the MLR model due to their distinct pattern from the rest of positions.  A decision tree can easily handle such abnormalities and non-linearity since it isn't forced to conform to linear assumptions about the data. We will try improving the accuracy of our predictions (lowering the RMSE) by using a random forest, an ensemble of decision trees.  
+
+```{r include=FALSE}
+# 80-20 training and test set split
+set.seed(5811)
+fifa <- fifa[complete.cases(fifa), ]
+smp_size <- floor(0.8 * nrow(fifa)) 
+index<-sample(1:dim(fifa)[1],size = smp_size,replace=F) 
+fifa2_train<-fifa[index,]
+fifa2_test<-fifa[-index,]
+```
+
+We use a random forest of 250 trees (250 bootstrapped samples). Standardization isn't necessary for random forests.The one metric included in random forest output is *Importance*, measuring how much each predictor reduces the residual sum of squares (SSR).
+
+```{r include=FALSE}
+# random forest using default mtry
+fifa_rf <- randomForest(Overall ~ Age+Weight+Dribbling+Interceptions+HeadingAccuracy+Reactions+Balance+Jumping+Stamina+Strength+Composure+Work.Rate+Position, data = fifa2_train, ntree=250,importance=TRUE)
+# predictions on test set
+overall.rf <- round(predict(fifa_rf, fifa2_test))
+# RMSE on test set
+sqrt(mean((overall.rf-fifa2_test$Overall)^2))
+# RMSE on training set
+sqrt(fifa_rf$mse[250])
+# R squared from training set
+fifa_rf$rsq[250]
+# R squared from test set
+1 - sum((fifa2_test$Overall-overall.rf)^2)/sum((fifa2_test$Overall-mean(fifa2_test$Overall))^2)
+# MAPE(training set)
+mean(abs(fifa2_train$Overall - round(fifa_rf$predicted)) / abs(fifa2_train$Overall))
+# MAPE (test set)
+mean(abs(fifa2_test$Overall - overall.rf) / abs(fifa2_test$Overall))
+```
+
+Here's a summary of the results:
+
+* $R^{2}$ (training set) = 90.1%
+* $R^{2}$ (test set) = 90.3%
+* RMSE (training set) = 2.17
+* RMSE (test set) = 2.20
+* MAPE (training set) = 2.5%
+* MAPE (test set) = 2.5%
+
+A random forest better captures the variability in the data, even with the goalkeepers included, by approximately 6 percentage points.  The RMSE decreases modestly, but not by much (2.71 to 2.20).  We have to keep in mind, however, that the MLR model didn't include goalkeepers.  If goalkeepers are removed, the test set RMSE for the random forest decreases to ~ 1.9.   
+
+```{r echo=FALSE}
+fifa_rf$importance
+```
+
+The random forest, as did the MLR model, indicates that ```Reactions``` and ```Dribbling``` are the most important indicators of a player's ```Overall``` score.  
+
+## Interpretation and Conclusion
+
+We were able to interpret many 
+
+An MLR and random forest regression model were compared for their predictive powers.  The MLR built strikes a balance between predictive accuracy and explanability since it eliminates multicollinearity for a minimally sufficient subset of predictor variables.  The random forest built doesn't provide a large margin of improvement over MLR, illustrating the power of linear regression modeling.  Nevertheless, both models infer that ```Reactions``` and ```Dribbling``` are the most important indicators of a player's success. 
